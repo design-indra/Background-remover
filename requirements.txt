@@ -1,4 +1,3 @@
 flask
-rembg
-Pillow
+requests
 gunicorn
