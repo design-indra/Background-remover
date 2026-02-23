@@ -1,17 +1,22 @@
-from flask import Flask, render_template, request, send_file
+from flask import Flask, render_template, request, send_file, session
 import requests
 import os
 import io
 import base64
+import tempfile
+import uuid
 
 template_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
 app = Flask(__name__, template_folder=template_dir)
+app.secret_key = "removebg-secret-2026"
 
 REMOVEBG_API_KEY = "X7Sz86eeZKNwHEtSDLh2MH9H"
 MAX_SIZE = 5 * 1024 * 1024  # 5MB
 
+# Simpan hasil sementara di memory
+result_store = {}
+
 def remove_background(image_bytes, filename):
-    """Kirim file langsung ke remove.bg API"""
     try:
         ext = filename.lower().split(".")[-1]
         mime = "image/png" if ext == "png" else "image/webp" if ext == "webp" else "image/jpeg"
@@ -39,6 +44,7 @@ def remove_background(image_bytes, filename):
 def index():
     result = None
     error = None
+    result_id = None
 
     if request.method == "POST":
         try:
@@ -54,17 +60,24 @@ def index():
                 else:
                     result_bytes = remove_background(image_bytes, file.filename)
                     if result_bytes:
+                        # Simpan hasil ke memory store dengan ID unik
+                        result_id = str(uuid.uuid4())
+                        result_store[result_id] = result_bytes
+
+                        # Preview base64 (compressed untuk display saja)
                         result_b64 = base64.b64encode(result_bytes).decode()
                         orig_b64 = base64.b64encode(image_bytes).decode()
                         ext = file.filename.lower().split(".")[-1]
                         orig_mime = "image/png" if ext == "png" else "image/jpeg"
+
                         result = {
                             "result": result_b64,
                             "original": orig_b64,
                             "orig_mime": orig_mime,
+                            "result_id": result_id,
                         }
                     else:
-                        error = "Gagal menghapus background. Coba dengan gambar lain."
+                        error = "Gagal menghapus background. Coba dengan gambar berlatar berwarna (bukan putih)."
 
         except Exception as e:
             print(f"Error: {e}")
@@ -72,17 +85,23 @@ def index():
 
     return render_template("index.html", result=result, error=error)
 
-@app.route("/download", methods=["POST"])
-def download():
-    img_data = request.form.get("image_data")
-    if not img_data:
-        return "Invalid", 400
+@app.route("/download/<result_id>")
+def download(result_id):
+    """Download via GET request dengan ID"""
+    result_bytes = result_store.get(result_id)
+    if not result_bytes:
+        return "File tidak ditemukan atau sudah kedaluwarsa.", 404
     try:
-        img_bytes = base64.b64decode(img_data)
-        buffer = io.BytesIO(img_bytes)
-        return send_file(buffer, mimetype="image/png",
-                         as_attachment=True, download_name="removebg_result.png")
+        buffer = io.BytesIO(result_bytes)
+        buffer.seek(0)
+        return send_file(
+            buffer,
+            mimetype="image/png",
+            as_attachment=True,
+            download_name="removebg_result.png"
+        )
     except Exception as e:
+        print(f"Download error: {e}")
         return f"Error: {e}", 500
 
 @app.route("/contact")
