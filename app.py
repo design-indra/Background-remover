@@ -9,73 +9,73 @@ app = Flask(__name__, template_folder=template_dir)
 
 RAPIDAPI_KEY = "f30b4baaecmsh7d04f39e3f19019p15339bjsnad800cd8c0d2"
 RAPIDAPI_HOST = "remove-background18.p.rapidapi.com"
+IMGBB_API_KEY = "0abd69bfceb5bba10fef09fa33bd5994"  # free imgbb key
 MAX_SIZE = 5 * 1024 * 1024  # 5MB
 
-def remove_background(image_bytes, filename):
-    headers = {
-        "x-rapidapi-key": RAPIDAPI_KEY,
-        "x-rapidapi-host": RAPIDAPI_HOST,
-    }
-
-    # Tentukan mime type
-    ext = filename.lower().split(".")[-1]
-    mime = "image/png" if ext == "png" else "image/webp" if ext == "webp" else "image/jpeg"
-
-    # Coba 1: multipart file upload
-    try:
-        r = requests.post(
-            f"https://{RAPIDAPI_HOST}/public/remove-background/file",
-            files={"image": (filename, image_bytes, mime)},
-            headers=headers,
-            timeout=30
-        )
-        print(f"[multipart] status={r.status_code} size={len(r.content)}")
-        if r.status_code == 200 and len(r.content) > 1000:
-            return r.content
-    except Exception as e:
-        print(f"[multipart] error: {e}")
-
-    # Coba 2: base64 encode lalu kirim
+def upload_to_imgbb(image_bytes):
+    """Upload gambar ke imgbb dan dapatkan URL publiknya"""
     try:
         b64 = base64.b64encode(image_bytes).decode("utf-8")
         r = requests.post(
-            f"https://{RAPIDAPI_HOST}/public/remove-background/base64",
-            json={"image_base64": b64},
-            headers={**headers, "Content-Type": "application/json"},
-            timeout=30
+            "https://api.imgbb.com/1/upload",
+            data={
+                "key": IMGBB_API_KEY,
+                "image": b64,
+            },
+            timeout=20
         )
-        print(f"[base64] status={r.status_code} size={len(r.content)}")
-        if r.status_code == 200 and len(r.content) > 1000:
-            return r.content
+        print(f"[imgbb] status={r.status_code}")
+        data = r.json()
+        if data.get("success"):
+            url = data["data"]["url"]
+            print(f"[imgbb] URL: {url}")
+            return url
     except Exception as e:
-        print(f"[base64] error: {e}")
+        print(f"[imgbb] error: {e}")
+    return None
 
-    # Coba 3: upload ke tmpfiles.org lalu kirim URL nya ke API
+def upload_to_tmpfiles(image_bytes, filename):
+    """Fallback: upload ke tmpfiles.org"""
     try:
-        up = requests.post(
+        ext = filename.lower().split(".")[-1]
+        mime = "image/png" if ext == "png" else "image/webp" if ext == "webp" else "image/jpeg"
+        r = requests.post(
             "https://tmpfiles.org/api/v1/upload",
             files={"file": (filename, image_bytes, mime)},
             timeout=20
         )
-        if up.status_code == 200:
-            data = up.json()
-            tmp_url = data.get("data", {}).get("url", "").replace(
-                "https://tmpfiles.org/", "https://tmpfiles.org/dl/"
-            )
-            print(f"Uploaded to: {tmp_url}")
-            if tmp_url:
-                r = requests.post(
-                    f"https://{RAPIDAPI_HOST}/public/remove-background/url",
-                    data={"url": tmp_url},
-                    headers={**headers, "Content-Type": "application/x-www-form-urlencoded"},
-                    timeout=30
-                )
-                print(f"[url-via-tmp] status={r.status_code} size={len(r.content)}")
-                if r.status_code == 200 and len(r.content) > 1000:
-                    return r.content
+        print(f"[tmpfiles] status={r.status_code}")
+        if r.status_code == 200:
+            data = r.json()
+            raw_url = data.get("data", {}).get("url", "")
+            # Convert ke direct download URL
+            url = raw_url.replace("https://tmpfiles.org/", "https://tmpfiles.org/dl/")
+            print(f"[tmpfiles] URL: {url}")
+            return url
     except Exception as e:
         print(f"[tmpfiles] error: {e}")
+    return None
 
+def remove_background(image_url):
+    """Kirim URL gambar ke RapidAPI remove background"""
+    try:
+        r = requests.post(
+            f"https://{RAPIDAPI_HOST}/public/remove-background/url",
+            data={"url": image_url},
+            headers={
+                "x-rapidapi-key": RAPIDAPI_KEY,
+                "x-rapidapi-host": RAPIDAPI_HOST,
+                "Content-Type": "application/x-www-form-urlencoded"
+            },
+            timeout=30
+        )
+        print(f"[removebg] status={r.status_code} size={len(r.content)}")
+        if r.status_code == 200 and len(r.content) > 1000:
+            return r.content
+        else:
+            print(f"[removebg] response: {r.text[:300]}")
+    except Exception as e:
+        print(f"[removebg] error: {e}")
     return None
 
 @app.route("/", methods=["GET", "POST"])
@@ -95,19 +95,30 @@ def index():
                 if len(image_bytes) > MAX_SIZE:
                     error = "Ukuran file terlalu besar. Maksimal 5MB."
                 else:
-                    result_bytes = remove_background(image_bytes, file.filename)
-                    if result_bytes:
-                        result_b64 = base64.b64encode(result_bytes).decode()
-                        orig_b64 = base64.b64encode(image_bytes).decode()
-                        ext = file.filename.lower().split(".")[-1]
-                        orig_mime = "image/png" if ext == "png" else "image/jpeg"
-                        result = {
-                            "result": result_b64,
-                            "original": orig_b64,
-                            "orig_mime": orig_mime,
-                        }
+                    # Step 1: Upload ke imgbb dulu
+                    public_url = upload_to_imgbb(image_bytes)
+
+                    # Fallback ke tmpfiles kalau imgbb gagal
+                    if not public_url:
+                        public_url = upload_to_tmpfiles(image_bytes, file.filename)
+
+                    if not public_url:
+                        error = "Gagal mengupload gambar. Silakan coba lagi."
                     else:
-                        error = "Gagal menghapus background. Coba lagi dengan gambar lain."
+                        # Step 2: Kirim URL ke RapidAPI
+                        result_bytes = remove_background(public_url)
+                        if result_bytes:
+                            result_b64 = base64.b64encode(result_bytes).decode()
+                            orig_b64 = base64.b64encode(image_bytes).decode()
+                            ext = file.filename.lower().split(".")[-1]
+                            orig_mime = "image/png" if ext == "png" else "image/jpeg"
+                            result = {
+                                "result": result_b64,
+                                "original": orig_b64,
+                                "orig_mime": orig_mime,
+                            }
+                        else:
+                            error = "Gagal menghapus background. Coba dengan gambar lain."
 
         except Exception as e:
             print(f"Error: {e}")
