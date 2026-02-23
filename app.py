@@ -7,56 +7,33 @@ import base64
 template_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
 app = Flask(__name__, template_folder=template_dir)
 
-RAPIDAPI_KEY = "f30b4baaecmsh7d04f39e3f19019p15339bjsnad800cd8c0d2"
-RAPIDAPI_HOST = "remove-background18.p.rapidapi.com"
-IMGBB_API_KEY = "3c82513a7b37b9f8610656309cd6e2d1"
+REMOVEBG_API_KEY = "X7Sz86eeZKNwHEtSDLh2MH9H"
 MAX_SIZE = 5 * 1024 * 1024  # 5MB
 
-def upload_to_imgbb(image_bytes):
-    """Upload gambar ke ImgBB, dapat URL publik"""
+def remove_background(image_bytes, filename):
+    """Kirim file langsung ke remove.bg API"""
     try:
-        b64 = base64.b64encode(image_bytes).decode("utf-8")
-        r = requests.post(
-            "https://api.imgbb.com/1/upload",
-            data={
-                "key": IMGBB_API_KEY,
-                "image": b64,
-            },
-            timeout=20
-        )
-        print(f"[imgbb] status={r.status_code}")
-        data = r.json()
-        if data.get("success"):
-            url = data["data"]["url"]
-            print(f"[imgbb] URL: {url}")
-            return url
-        else:
-            print(f"[imgbb] failed: {data}")
-    except Exception as e:
-        print(f"[imgbb] error: {e}")
-    return None
+        ext = filename.lower().split(".")[-1]
+        mime = "image/png" if ext == "png" else "image/webp" if ext == "webp" else "image/jpeg"
 
-def remove_background(image_url):
-    """Kirim URL ke RapidAPI remove-background"""
-    try:
         r = requests.post(
-            f"https://{RAPIDAPI_HOST}/public/remove-background/url",
-            data={"url": image_url},
-            headers={
-                "x-rapidapi-key": RAPIDAPI_KEY,
-                "x-rapidapi-host": RAPIDAPI_HOST,
-                "Content-Type": "application/x-www-form-urlencoded"
-            },
+            "https://api.remove.bg/v1.0/removebg",
+            files={"image_file": (filename, image_bytes, mime)},
+            data={"size": "auto"},
+            headers={"X-Api-Key": REMOVEBG_API_KEY},
             timeout=30
         )
-        print(f"[removebg] status={r.status_code} size={len(r.content)}")
-        if r.status_code == 200 and len(r.content) > 1000:
+        print(f"[remove.bg] status={r.status_code} size={len(r.content)}")
+
+        if r.status_code == 200:
             return r.content
         else:
-            print(f"[removebg] response: {r.text[:300]}")
+            print(f"[remove.bg] error: {r.text}")
+            return None
+
     except Exception as e:
-        print(f"[removebg] error: {e}")
-    return None
+        print(f"[remove.bg] exception: {e}")
+        return None
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -75,26 +52,19 @@ def index():
                 if len(image_bytes) > MAX_SIZE:
                     error = "Ukuran file terlalu besar. Maksimal 5MB."
                 else:
-                    # Step 1: Upload ke ImgBB → dapat URL publik
-                    public_url = upload_to_imgbb(image_bytes)
-
-                    if not public_url:
-                        error = "Gagal mengupload gambar ke server. Silakan coba lagi."
+                    result_bytes = remove_background(image_bytes, file.filename)
+                    if result_bytes:
+                        result_b64 = base64.b64encode(result_bytes).decode()
+                        orig_b64 = base64.b64encode(image_bytes).decode()
+                        ext = file.filename.lower().split(".")[-1]
+                        orig_mime = "image/png" if ext == "png" else "image/jpeg"
+                        result = {
+                            "result": result_b64,
+                            "original": orig_b64,
+                            "orig_mime": orig_mime,
+                        }
                     else:
-                        # Step 2: Kirim URL ke RapidAPI
-                        result_bytes = remove_background(public_url)
-                        if result_bytes:
-                            result_b64 = base64.b64encode(result_bytes).decode()
-                            orig_b64 = base64.b64encode(image_bytes).decode()
-                            ext = file.filename.lower().split(".")[-1]
-                            orig_mime = "image/png" if ext == "png" else "image/jpeg"
-                            result = {
-                                "result": result_b64,
-                                "original": orig_b64,
-                                "orig_mime": orig_mime,
-                            }
-                        else:
-                            error = "Gagal menghapus background. Coba dengan gambar lain."
+                        error = "Gagal menghapus background. Coba dengan gambar lain."
 
         except Exception as e:
             print(f"Error: {e}")
