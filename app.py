@@ -9,11 +9,11 @@ app = Flask(__name__, template_folder=template_dir)
 
 RAPIDAPI_KEY = "f30b4baaecmsh7d04f39e3f19019p15339bjsnad800cd8c0d2"
 RAPIDAPI_HOST = "remove-background18.p.rapidapi.com"
-IMGBB_API_KEY = "0abd69bfceb5bba10fef09fa33bd5994"  # free imgbb key
+IMGBB_API_KEY = "3c82513a7b37b9f8610656309cd6e2d1"
 MAX_SIZE = 5 * 1024 * 1024  # 5MB
 
 def upload_to_imgbb(image_bytes):
-    """Upload gambar ke imgbb dan dapatkan URL publiknya"""
+    """Upload gambar ke ImgBB, dapat URL publik"""
     try:
         b64 = base64.b64encode(image_bytes).decode("utf-8")
         r = requests.post(
@@ -30,34 +30,14 @@ def upload_to_imgbb(image_bytes):
             url = data["data"]["url"]
             print(f"[imgbb] URL: {url}")
             return url
+        else:
+            print(f"[imgbb] failed: {data}")
     except Exception as e:
         print(f"[imgbb] error: {e}")
     return None
 
-def upload_to_tmpfiles(image_bytes, filename):
-    """Fallback: upload ke tmpfiles.org"""
-    try:
-        ext = filename.lower().split(".")[-1]
-        mime = "image/png" if ext == "png" else "image/webp" if ext == "webp" else "image/jpeg"
-        r = requests.post(
-            "https://tmpfiles.org/api/v1/upload",
-            files={"file": (filename, image_bytes, mime)},
-            timeout=20
-        )
-        print(f"[tmpfiles] status={r.status_code}")
-        if r.status_code == 200:
-            data = r.json()
-            raw_url = data.get("data", {}).get("url", "")
-            # Convert ke direct download URL
-            url = raw_url.replace("https://tmpfiles.org/", "https://tmpfiles.org/dl/")
-            print(f"[tmpfiles] URL: {url}")
-            return url
-    except Exception as e:
-        print(f"[tmpfiles] error: {e}")
-    return None
-
 def remove_background(image_url):
-    """Kirim URL gambar ke RapidAPI remove background"""
+    """Kirim URL ke RapidAPI remove-background"""
     try:
         r = requests.post(
             f"https://{RAPIDAPI_HOST}/public/remove-background/url",
@@ -95,15 +75,11 @@ def index():
                 if len(image_bytes) > MAX_SIZE:
                     error = "Ukuran file terlalu besar. Maksimal 5MB."
                 else:
-                    # Step 1: Upload ke imgbb dulu
+                    # Step 1: Upload ke ImgBB → dapat URL publik
                     public_url = upload_to_imgbb(image_bytes)
 
-                    # Fallback ke tmpfiles kalau imgbb gagal
                     if not public_url:
-                        public_url = upload_to_tmpfiles(image_bytes, file.filename)
-
-                    if not public_url:
-                        error = "Gagal mengupload gambar. Silakan coba lagi."
+                        error = "Gagal mengupload gambar ke server. Silakan coba lagi."
                     else:
                         # Step 2: Kirim URL ke RapidAPI
                         result_bytes = remove_background(public_url)
