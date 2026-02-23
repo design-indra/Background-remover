@@ -70,7 +70,7 @@
     <div class="max-w-2xl mx-auto px-4 py-10">
         <div class="bg-white rounded-[2rem] shadow-xl p-8 border border-emerald-50">
             <form method="POST" action="/" enctype="multipart/form-data">
-                <div class="upload-area" onclick="document.getElementById('image_input').click()" id="drop-area">
+                <div class="upload-area mb-6" onclick="document.getElementById('image_input').click()" id="drop-area">
                     <i class="fa-solid fa-cloud-arrow-up text-5xl text-emerald-400 mb-4 block"></i>
                     <p class="font-black text-gray-700 text-lg mb-1">Klik atau drag & drop foto</p>
                     <p class="text-sm text-gray-400">PNG, JPG, WEBP • Maks 5MB</p>
@@ -78,7 +78,7 @@
                 </div>
                 <input type="file" name="image" id="image_input" accept=".png,.jpg,.jpeg,.webp" class="hidden" onchange="showFileName(this)">
 
-                <button type="submit" class="btn-main w-full mt-6 flex items-center justify-center gap-2">
+                <button type="submit" class="btn-main w-full mt-5 flex items-center justify-center gap-2">
                     <i class="fa-solid fa-scissors"></i> HAPUS BACKGROUND
                 </button>
             </form>
@@ -96,21 +96,19 @@
                 <div class="grid grid-cols-2 gap-4 mb-6">
                     <div>
                         <p class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 text-center">Sebelum</p>
-                        <img src="data:image/{{ result.original_ext }};base64,{{ result.original }}" class="w-full rounded-2xl border shadow-sm object-cover h-48" alt="Original">
+                        <img src="data:{{ result.orig_mime }};base64,{{ result.original }}" class="w-full rounded-2xl border shadow-sm object-cover h-48" alt="Original">
                     </div>
                     <div>
                         <p class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 text-center">Sesudah</p>
                         <div class="checkerboard rounded-2xl border shadow-sm h-48 flex items-center justify-center overflow-hidden">
-                            <img src="data:image/png;base64,{{ result.output }}" class="w-full h-full object-contain" alt="Result">
+                            <img src="data:image/png;base64,{{ result.result }}" class="w-full h-full object-contain" alt="Result">
                         </div>
                     </div>
                 </div>
-                <form method="POST" action="/download">
-                    <input type="hidden" name="image_data" value="{{ result.output }}">
-                    <button type="submit" class="btn-main w-full flex items-center justify-center gap-2">
-                        <i class="fa-solid fa-download"></i> DOWNLOAD PNG (Transparan)
-                    </button>
-                </form>
+                <a href="/download/{{ result.result_id }}" 
+                   class="btn-main w-full flex items-center justify-center gap-2 block text-center">
+                    <i class="fa-solid fa-download"></i> DOWNLOAD PNG (Transparan)
+                </a>
                 <a href="/" class="mt-4 text-emerald-600 font-bold text-sm hover:underline block text-center">← Hapus foto lain</a>
             </div>
             {% endif %}
